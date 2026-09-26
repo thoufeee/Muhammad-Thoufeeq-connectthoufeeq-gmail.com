@@ -75,8 +75,32 @@ gives nothing away.
 
 ## Phase 2 — caller context and the resolution engine
 
-_This is where most people's first model is wrong. Write down the model you started with, the
-observation that broke it, and the model you moved to. Be specific about the observation._
+### 2026-09-26 · my model before coding
+* I think: role gives a set of permissions, allow grants add, deny grants remove,
+  and a more specific (device) grant should beat a broader (org-wide) one.
+
+  ### 2026-09-26 · resolve() and the assert functions
+
+* Ran check-permissions.js and got no output at all, not even the section headers. Turned out
+  I'd pasted the engine code into scripts/check-permissions.js instead of server/permissions.js,
+  so the "test" was just defining functions and exiting. Restored it with
+  `git checkout -- scripts/check-permissions.js`.
+* How resolve() works: loadInputs() reads the membership, the permission catalogue, the role
+  baseline and the grants that are live right now (4 queries). evaluate() then goes through each
+  permission: explicit deny → role baseline → allow grant → implicit deny.
+* The case that decides the model: Sam has an org-wide deny on device:terminal, and I added a
+  device-scoped allow on lab-win-01. Result is deny. A narrower allow does not beat a broader deny.
+* Org-level view (for nav and pages) is a union: device-scoped allows count ("can I do this
+  anywhere?"), device-scoped denies don't, because one blocked device shouldn't hide the
+  permission for the whole org.
+* Wrong assumption: I returned `source` as the bare grant id. `npm run personalisation` failed
+  2 checks because it wants "grant:<id>", and check-api.js also checks `startsWith('grant:')`.
+  Changed to grant:<id>, and role:<role> for role allows.
+* My personalised DB has role "reviewer" and permission "device:reboot". Both work without any
+  special code, because everything is read from the tables.
+* Measured: resolveDevices() runs the same 4 queries whether the org has 3 devices or 300.
+  The per-device decisions happen in memory.
+* Result: check-permissions 35/35, personalisation 18/18, check-jwt still 43/43.
 
 ## Phase 3 — orgs, members, invites
 

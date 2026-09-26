@@ -60,6 +60,24 @@ if the lengths differ, which would be a crash instead of a 401, so the length ch
 **What I rejected:** A plain `given === expected`. It stops at the first wrong character, so in
 theory someone could time the responses and guess the signature a byte at a time.
 
+### A deny always wins, and the org-level view is a union
+
+**What I chose:** In server/permissions.js an explicit deny beats everything, whatever its scope.
+For org-level questions (nav, page gating) device-scoped allows count but device-scoped denies
+don't. For the no-laundering check I use a stricter "everywhere" scope, where device-scoped
+allows don't count and any deny does.
+**Why:** The check-permissions test "device-scoped ALLOW does NOT carve out org-wide DENY" only
+passes if deny is checked before anything else. A viewer with device:control on one device has to
+see Control on that row, so the org view must include device allows. But the viewer's deny on
+kiosk-lobby-01 shouldn't hide device:view for the whole org. For granting, an admin with an allow
+on just one device shouldn't be able to hand that permission out org-wide, so assertMayGrant uses
+the stricter scope.
+**What I rejected:** "The most specific grant wins", which is what I'd expect from firewall-style
+rules. A device allow would then override an org-wide deny, and the test forbids exactly that.
+Also rejected using the union for laundering checks: one device allow would become an org-wide grant.
+**What would change my mind:** A case where a narrower allow is expected to survive a broader
+deny. I couldn't find one in the tests or the docs.
+
 
 ## Where this repo argues with itself
 
