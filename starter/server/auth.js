@@ -8,6 +8,7 @@
 
 import { createHmac, timingSafeEqual, randomBytes, scryptSync, randomUUID } from 'node:crypto';
 import { unauthenticated, tokenStale } from './http.js';
+import { json } from 'node:stream/consumers';
 const ALG = 'HS256';
 const ISS = 'remoteops';
 const AUD = 'remoteops-api';
@@ -71,12 +72,66 @@ export function issueAccessToken({ userId, orgId, role, permVersion }, secret) {
 // `node scripts/check-jwt.js` is the public test suite for this function.
 // ---------------------------------------------------------------------------
 export function verifyAccessToken(token, secret) {
-  // YOURS TO WRITE. Every failure mode listed above must be a 401 UNAUTHENTICATED.
-  // `node scripts/check-jwt.js` is the public suite for this function.
-  throw Object.assign(
-    new Error('TODO: server/auth.js — verifyAccessToken() is yours to write (AUTH-DATA-MODEL.md §10).'),
-    { code: 'NOT_IMPLEMENTED' }
-  );
+//  must be a non empty string with three dot seprated parts 
+if (typeof token != 'string' || token.length == 0) {
+    throw unauthenticated('missing token')
+}
+
+const parts = token.split('.')
+
+if (parts.length != 3) throw unauthenticated('malfromed token');
+const [h,p,s] = parts
+
+// checking the header 
+const header = decodeSegment(h);
+
+if (header.alg !== ALG || header.typ !== 'JWT') {
+    throw unauthenticated("unsupported token header")
+}
+
+// checking signature
+
+const expected = b64(createHmac('sha256', secret).update(`${h}.${p}`).digest());
+  const given = Buffer.from(s);
+  const want = Buffer.from(expected);
+  if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    throw unauthenticated('bad signature');
+  }
+
+
+  // payload: only parsed after the signature proves nobody changed it.
+  const claims = decodeSegment(p);
+
+  // claims 
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now) {
+    throw unauthenticated('token expired');
+  }
+  if (claims.iss !== ISS || claims.aud !== AUD) {
+    throw unauthenticated('wrong issuer or audience');
+  }
+  if (typeof claims.jti !== 'string' || claims.jti.length === 0) {
+    throw unauthenticated('missing jti');
+  }
+
+  return claims;
+}
+
+// helper for decode baserul64 into plain json object
+function decodeSegment(segment){
+    if (!/^[A-Za-z0-9_-]+$/.test(segment)) throw unauthenticated('malformed token');
+    let value;
+    try {
+       value = JSON.parse(unb64(segment).toString('utf8'));
+    } catch {
+        throw unauthenticated('malformed token')
+    } 
+
+    if (value === null || typeof value != 'object' || Array.isArray(value)) {
+        throw unauthenticated('malformed token')
+    } 
+
+    return value;
 }
 
 

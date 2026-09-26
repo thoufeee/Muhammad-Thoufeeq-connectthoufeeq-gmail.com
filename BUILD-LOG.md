@@ -59,6 +59,20 @@ gives nothing away.
   recompute the HS256 signature, then check exp, iss, aud, jti.
 * Guess: most failures will pass once the signature check works; exp == now may trip me.
 
+### 2026-09-26 · verifyAccessToken – fail-closed bugs
+
+* I was wrong. First run: 36 passed, 7 failed. All the rejection tests passed but the valid
+  token got rejected. The function was saying no to everything.
+* Added a debug log and it never printed, so the code wasn't even getting past the first line.
+* Bug 1: I'd written `typeof token != String`. typeof gives the text "string", and I was
+  comparing it to the String function, so it was always "not equal" and every token got thrown out.
+* Fixed that and re-ran: still 36 / 7. So something else was also rejecting good tokens.
+* Bug 2: `JSON.parse(unb64(segment)).toString('utf8')`. Bracket in the wrong place. It parsed
+  the header and then turned it into the text "[object Object]", which then failed my
+  "is it an object" check. Changed it to `JSON.parse(unb64(segment).toString('utf8'))`.
+* Re-ran: 43 passed, 0 failed.
+
+
 ## Phase 2 — caller context and the resolution engine
 
 _This is where most people's first model is wrong. Write down the model you started with, the
