@@ -81,10 +81,6 @@ gives nothing away.
 
   ### 2026-09-26 · resolve() and the assert functions
 
-* Ran check-permissions.js and got no output at all, not even the section headers. Turned out
-  I'd pasted the engine code into scripts/check-permissions.js instead of server/permissions.js,
-  so the "test" was just defining functions and exiting. Restored it with
-  `git checkout -- scripts/check-permissions.js`.
 * How resolve() works: loadInputs() reads the membership, the permission catalogue, the role
   baseline and the grants that are live right now (4 queries). evaluate() then goes through each
   permission: explicit deny → role baseline → allow grant → implicit deny.
@@ -100,26 +96,78 @@ gives nothing away.
   special code, because everything is read from the tables.
 * Measured: resolveDevices() runs the same 4 queries whether the org has 3 devices or 300.
   The per-device decisions happen in memory.
-* Result: check-permissions 35/35, personalisation 18/18, check-jwt still 43/43.
+
+### 2026-09-26 · context.js
+
+* Order: verify token → path org must equal token org (else 404) → membership exists
+  (else 401) → suspended (403) → fresh pv (401 TOKEN_STALE).
+* First instinct was to check freshness first. But suspending bumps perm_version, so a
+  suspended user would only ever see TOKEN_STALE, never "suspended". Moved suspended above it.
+* Tested with a throwaway script against a seeded DB: Acme token on /orgs/org_globex → 404;
+  after bumpPermVersion Sam's old token → TOKEN_STALE; removed from Acme → 401 there, but
+  Sam's Globex token still works.
 
 ## Phase 3 — orgs, members, invites
 
-_Anything you had to work out that no document states. Invite lifecycle states are a common
-source of this._
+### 2026-09-27 · members and invites
+
+* Equal-rank rule vs the test: PERMISSIONS §6 says admin→admin is 403, but check-api
+  "demoting a NON-last owner is allowed" has an owner demoting another owner. So owners may
+  modify owners; everyone else only strictly lower ranks (lifecycle.assertCanModify).
+* No document says what happens to a removed member's grants. I revoke them on removal so a
+  rehire starts clean instead of silently inheriting old grants.
+* Invites: an expired, never-accepted invite still sits in the partial unique index and would
+  block re-inviting that email forever. I retire expired ones before inserting.
+
+### 2026-09-27 · check-api crashed before any test ran
+
+* check-api.js died with "Command failed: node scripts/load-db.js" and no detail
+  (it runs the loader with stdio ignored).
+* Ran the loader myself with DATABASE_FILE=check-api.db → "server/auth.js does not
+  provide an export named 'hashPassword'". I had accidentally cut off the bottom half of
+  auth.js (hashPassword, verifyPassword, refresh/invite token helpers) while editing it.
+* check-jwt.js never noticed, because it only imports verifyAccessToken and signToken.
+  A passing suite only proves the parts it imports.
+* Restored the file, removed a stray editor auto-import, and made the ===/!== match what
+  I claimed earlier in this log.
+* Then two more file problems before the server would start: routes/orgs.js didn't exist yet,
+  and I'd named routes/util.js as utils.js, so the imports failed. Then audit.js was still the
+  stub (found it with Select-String for "is yours to write").
+
 
 ## Phase 4 — devices and grants
 
-_What happens at the boundary where two grants disagree, or where a grant's scope and the
-question's scope differ? Say what you predicted and what you got._
+### 2026-09-27 · wildcard grants and laundering
+
+* Predicted the owner could grant anything. Tried owner → viewer `device:*` → 403 scope_mismatch.
+* Why: device:* covers every device permission in the table, including my personalised
+  device:reboot, and NO role (not even owner) has device:reboot in its baseline. Granting
+  device:* would hand out something the owner doesn't hold. Kept it strict.
+* Grant validation order: shape (400) → visibility (404) → expired (400 GRANT_EXPIRED) →
+  authority (403). So a cross-org device is a 404 before anyone learns about permissions.
+
 
 ## Phase 5 — sessions
 
-_Two permissions, one device. What did you have to resolve, and in what order, to keep the two
-failure reasons distinguishable?_
+### 2026-09-27 · compound check and exclusivity
+
+* session:start checked before the mode permission, so the two refusals stay distinguishable:
+  missing_permission vs missing_device_permission.
+* Exclusivity is the partial unique index; I catch the UNIQUE violation and return 409
+  DEVICE_BUSY with the holder's id. No check-then-insert.
+* Expired sessions are ended lazily (expireSessions) before listing/starting, otherwise an
+  expired control session would still hold the unique index and block the device.
+
 
 ## Phase 6 — audit
 
-_What did you decide counts as an auditable event, and what pushed you to that line?_
+### 2026-09-27 · what gets audited
+
+* Every change writes one 'allow' row inside the same transaction as the change.
+* Every 403 writes one 'deny' row via a guard() wrapper around each route.
+* Reads are not audited. 404s are not audited (the caller can't see the thing).
+* Result: check-api 66/66, check-permissions 35/35, check-jwt 43/43, personalisation 18/18.
+
 
 ## Phase 7 — the console
 
