@@ -20,6 +20,21 @@ README.md to find the app. It says q1-starter/ is "the reference implementation,
 and the task rules say copying the reference solution disqualifies. starter/ has its own
 package.json and the app starts from there on http://localhost:8080.
 
+### I fix path handling in load-db.js instead of moving the repo
+
+**What I chose:** Changed `here()` in scripts/load-db.js to use `fileURLToPath(...)` instead of
+`new URL(...).pathname`, and I run `npm run db:load` instead of `npm run db:reset` on Windows.
+**Why:** `npm test` crashed with ENOENT on `C:\C:\...Ta%CC%80i%20li...\db\schema.sql`.
+`.pathname` keeps URL encoding and a leading "/C:/", so a Windows path with a drive letter or
+non-ASCII characters breaks. `fileURLToPath` decodes it and handles drive letters, and still
+works on Mac/Linux, so graders are unaffected. `db:reset` fails on `rm -f` (not a Windows
+command), but load-db.js already deletes the old DB files itself.
+**What I rejected:** Moving the repo to a plain path like C:\dev – it hides the bug instead of
+fixing it, and I want to keep my folder layout. Editing package.json's db:reset script – graders
+run it on their own machines, and I did not want to change a given command they depend on.
+**What would change my mind:** If graders run on Windows and need `db:reset` itself to work,
+I would replace `rm -f` with a Node-based delete.
+
 
 ## Where this repo argues with itself
 

@@ -11,19 +11,6 @@ gives nothing away.
 
 ---
 
-<!-- EXAMPLE — delete this block, keep the shape.
-
-## 2026-03-04 · Phase 0 — orientation
-
-Expected the unknown-permission test to fail on my validation code.
-Observed: it passed, with foreign_keys ON, and *also* passed with the pragma removed — so the
-check was never running, and the "pass" was the schema loading fine while enforcing nothing.
-Changed: moved `foreign_keys = ON` to connection open and re-ran; now it raises
-`FOREIGN KEY constraint failed` as the README said it would.
-Note: this is the failure mode where a passing test is worse than a failing one.
-
--->
-
 ## Phase 0 — orientation
 
 ### 2026-09-26 · setup
@@ -45,10 +32,32 @@ Note: this is the failure mode where a passing test is worse than a failing one.
 * Copied the BUILD-LOG.md and DECISIONS.md templates from starter/ to the repo root.
 
 
+### 2026-09-26 · first test run – path bug on Windows
+
+* Ran `npm test` → Playwright webServer crashed: ENOENT on
+  `C:\C:\Users\...\Ta%CC%80i%20li%C3%AA%CC%A3u\...\db\schema.sql`.
+* Expected failures from my missing code, not a crash loading the schema.
+* Cause: scripts/load-db.js builds paths with `new URL(p, import.meta.url).pathname`.
+  On Windows that keeps URL encoding ("Tài liệu" → %CC%80...) and a leading "/C:/",
+  which resolves to "C:\C:\".
+* Fix: `fileURLToPath(new URL(p, import.meta.url))` from node:url.
+
+
+### 2026-09-26 · db:reset on Windows + baseline
+
+* `npm run db:reset` → "'rm' is not recognized". The script uses Unix `rm -f`.
+  load-db.js already deletes app.db/-wal/-shm itself, so I run `npm run db:load` instead.
+* Baseline: check-permissions.js throws at resolve() (NOT_IMPLEMENTED);
+  check-jwt.js 0 passed, 43 failed. Expected – nothing implemented yet.
+
+
 ## Phase 1 — token verification
 
-_What did you expect each failure mode to look like before you ran it? Which one behaved
-differently from your expectation, and what did that tell you?_
+### 2026-09-26 · prediction before coding
+
+* I expect verifyAccessToken needs: split into 3 parts, check header alg/typ,
+  recompute the HS256 signature, then check exp, iss, aud, jti.
+* Guess: most failures will pass once the signature check works; exp == now may trip me.
 
 ## Phase 2 — caller context and the resolution engine
 
