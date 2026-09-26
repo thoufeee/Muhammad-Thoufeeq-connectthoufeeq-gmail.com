@@ -8,7 +8,6 @@
 
 import { createHmac, timingSafeEqual, randomBytes, scryptSync, randomUUID } from 'node:crypto';
 import { unauthenticated, tokenStale } from './http.js';
-import { json } from 'node:stream/consumers';
 const ALG = 'HS256';
 const ISS = 'remoteops';
 const AUD = 'remoteops-api';
@@ -48,61 +47,36 @@ export function issueAccessToken({ userId, orgId, role, permVersion }, secret) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// TODO — yours to implement.
-//
-// Verify an access token and return its claims, or throw `unauthenticated(...)`.
-// The signing half above is done for you; the verifying half is the exercise.
-//
-// It must reject ALL of the following, each with a 401 UNAUTHENTICATED:
-//
-//   1. a token that is not three dot-separated segments
-//   2. a header or payload that is not valid base64url-encoded JSON
-//   3. a header whose `alg` is anything other than 'HS256', or whose `typ` is not 'JWT'
-//      -- read the header, do NOT trust it. This is the `alg: none` and
-//         algorithm-substitution defence. The constants ALG, ISS and AUD are above.
-//   4. a signature that does not match, compared in constant time
-//   5. an `exp` that is missing, not a number, or <= now (note: <=, not <)
-//   6. an `iss` or `aud` that is not ours
-//   7. a missing or empty `jti`
-//
-// On success, return the decoded claims object.
-//
-// AUTH-DATA-MODEL.md §10 lists the failure modes; §2 defines the claim set.
-// `node scripts/check-jwt.js` is the public test suite for this function.
-// ---------------------------------------------------------------------------
+// Verify an access token and return its claims, or throw 401 UNAUTHENTICATED.
+// Order: shape -> header (alg/typ) -> signature (constant time) -> payload -> claims.
 export function verifyAccessToken(token, secret) {
-//  must be a non empty string with three dot seprated parts 
-if (typeof token != 'string' || token.length == 0) {
-    throw unauthenticated('missing token')
-}
+  // must be a non empty string with three dot separated parts
+  if (typeof token !== 'string' || token.length === 0) {
+    throw unauthenticated('missing token');
+  }
 
-const parts = token.split('.')
+  const parts = token.split('.');
+  if (parts.length !== 3) throw unauthenticated('malformed token');
+  const [h, p, s] = parts;
 
-if (parts.length != 3) throw unauthenticated('malfromed token');
-const [h,p,s] = parts
+  // checking the header: read it, never trust it to choose the algorithm
+  const header = decodeSegment(h);
+  if (header.alg !== ALG || header.typ !== 'JWT') {
+    throw unauthenticated('unsupported token header');
+  }
 
-// checking the header 
-const header = decodeSegment(h);
-
-if (header.alg !== ALG || header.typ !== 'JWT') {
-    throw unauthenticated("unsupported token header")
-}
-
-// checking signature
-
-const expected = b64(createHmac('sha256', secret).update(`${h}.${p}`).digest());
+  // checking signature
+  const expected = b64(createHmac('sha256', secret).update(`${h}.${p}`).digest());
   const given = Buffer.from(s);
   const want = Buffer.from(expected);
   if (given.length !== want.length || !timingSafeEqual(given, want)) {
     throw unauthenticated('bad signature');
   }
 
-
   // payload: only parsed after the signature proves nobody changed it.
   const claims = decodeSegment(p);
 
-  // claims 
+  // claims
   const now = Math.floor(Date.now() / 1000);
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now) {
     throw unauthenticated('token expired');
@@ -117,23 +91,20 @@ const expected = b64(createHmac('sha256', secret).update(`${h}.${p}`).digest());
   return claims;
 }
 
-// helper for decode baserul64 into plain json object
-function decodeSegment(segment){
-    if (!/^[A-Za-z0-9_-]+$/.test(segment)) throw unauthenticated('malformed token');
-    let value;
-    try {
-       value = JSON.parse(unb64(segment).toString('utf8'));
-    } catch {
-        throw unauthenticated('malformed token')
-    } 
-
-    if (value === null || typeof value != 'object' || Array.isArray(value)) {
-        throw unauthenticated('malformed token')
-    } 
-
-    return value;
+// helper: decode one base64url segment into a plain JSON object, or throw 401
+function decodeSegment(segment) {
+  if (!/^[A-Za-z0-9_-]+$/.test(segment)) throw unauthenticated('malformed token');
+  let value;
+  try {
+    value = JSON.parse(unb64(segment).toString('utf8'));
+  } catch {
+    throw unauthenticated('malformed token');
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw unauthenticated('malformed token');
+  }
+  return value;
 }
-
 
 // The freshness check (AUTH-DATA-MODEL.md §3). Compares the token's pv against the
 // membership's current perm_version. Note `!==`, not `<`: a token from the future is
