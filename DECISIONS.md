@@ -11,14 +11,21 @@ Rules, from `DISCOVERY-BRIEF.md`:
 
 ---
 
-### I build only in starter/ and do not open q1-starter/
+## I build only in starter/ and do not open q1-starter/
 
 **What I chose:** All my work happens inside starter/. I ran npm install, npm run db:reset and
-npm run dev there.I use Claude (AI assistant) for fixing grammar in my BUILD-LOG.md and DECISIONS.md.
+npm run dev there. I use Claude (AI assistant) diagnosing environment errors, explaining and drafting verifyAccessToken,
+ the permission engine, context.js, lifecycle.js, audit.js, the API routes and the React console (which I put
+in, tested, debugged and can explain line by line), and fixing grammar in my BUILD-LOG.md and
+DECISIONS.md.
 **Why:** `npm install` at the repo root failed with ENOENT (no package.json), so I read the root
 README.md to find the app. It says q1-starter/ is "the reference implementation, not a starter",
 and the task rules say copying the reference solution disqualifies. starter/ has its own
 package.json and the app starts from there on http://localhost:8080.
+**What I rejected:** Opening or running q1-starter/. It would give me the answer, and I couldn't
+defend that code as mine in the live round.
+**What would change my mind:** The organisers telling me a different folder is the real hand-out.
+
 
 ### I fix path handling in load-db.js instead of moving the repo
 
@@ -143,14 +150,43 @@ has a gap between the check and the insert where two requests can both pass the 
 explicit lock or a serialised transaction.
 
 
+### The console's Watch button needs session:start; Control and Terminal don't
+
+**What I chose:** In web/views.jsx each row button appears only when that row's permissions allow
+it. Control and Terminal check only device:control / device:terminal. Watch checks device:view
+AND session:start.
+**Why:** device:view is true on every row you can see at all, so a Watch keyed on it alone showed
+on every row and failed when clicked. seed/orgs.json says the viewer gets "a working View button on
+lab-mac-01 and nowhere else", which only holds with the session:start check. ui.spec.js requires
+Dana's Control button on globex-desk-01 even though she has no session:start there, so Control
+can't have the same extra check.
+**What I rejected:** The same rule for all three buttons. Either Watch appears everywhere, or
+Dana's Control disappears and the UI test "a device-scoped grant surfaces exactly one control"
+fails
+
 ## Where this repo argues with itself
 
 The documents contradict each other, or contradict the schema, in at least one place. Name each
 one you found. For each: quote both statements, say which you built against, and say why.
 
-Building against the written rule and arguing in writing is a **full-marks** answer. Silently
-working around it, or quietly picking one and saying nothing, scores zero on the section — we
-cannot tell the difference between a decision and an oversight.
+- The root README.md calls itself "the only file here written for us rather than for the
+  candidate" and lists q1-starter/, evaluate/, tools/ and DISCOVERY-RUBRIC.md as things that
+  shouldn't ship. They're all in the public template anyway. I've treated them as off-limits.
+- PERMISSIONS.md says owner has every permission, and ui.spec.js says "A brand-new owner holds
+  every permission". But db/reference.sql builds the owner baseline from the 19 documented
+  permissions, and the personalised permission (device:reboot in mine) is in no role's baseline.
+  I built against the database, so an owner cannot grant device:* (see the wildcard decision).
+- PERMISSIONS.md §6 says "modify a user of equal role (admin → admin) → 403", but check-api
+  expects an owner to demote another owner. I built against the test: equal rank is refused,
+  except owner → owner.
+- seed/orgs.json says the viewer's grant gives "a working View button on lab-mac-01", which
+  needs session:start + device:view. But Dana's Globex grant is device:control alone, and
+  ui.spec requires her Control button on globex-desk-01 even though clicking it would be
+  refused (no session:start). I built Watch on session:start + device:view and Control on
+  device:control only, so both documented stories render as described.
+- playwright.config.js says "`npm test` builds the SPA first" but package.json's test script
+  didn't. I changed the script to match the comment.
+
 
 ## Deliberately not built
 

@@ -171,14 +171,52 @@ gives nothing away.
 
 ## Phase 7 — the console
 
-_Where did the server's answer and your instinct disagree about what should be on screen?_
+### 2026-09-27 · the console
+
+* Nav cards come from /auth/me (org-level union); device buttons come from each row's own
+  permissions. No role names anywhere in web/.
+* Where the server and my instinct disagreed: I first keyed Watch on device:view. But every
+  visible row has device:view, so Watch showed on every row and would fail on click. The seed
+  says the viewer gets "a working View button on lab-mac-01 and nowhere else" – that needs
+  session:start too. Control stays keyed on device:control only, because ui.spec requires it
+  for Dana on globex-desk-01 even though she has no session:start there.
+* Sam's org-wide terminal deny showed "Terminal blocked" on every row – noisy. If a deny
+  covers every row I now say it once above the table.
+* npm test didn't build the SPA, though playwright.config.js says it does. Changed the script
+  to `vite build && playwright test`.
+* First `npm test` on my machine: "Could not resolve ./styles.css" – I had saved it as
+  style.css. Renamed it.
+* UI suite: 25/25. All suites together: 43 + 35 + 18 + 66 + 25 = 187 passing.
+
 
 ## Phase 8 — hardening
 
-_What did you measure, what did you fix, and what did you deliberately leave alone? Anything you
-chose not to build belongs here with its reason._
+### 2026-09-27 · what I checked beyond the public suites
+
+* Refresh rotation: using a refresh token twice kills the whole family, so the newer token
+  also stops working. Presenting an access token at /auth/refresh → 401.
+* Laundering: owner puts an org-wide deny on the admin's device:terminal; the admin then
+  tries to grant device:terminal to the viewer → 403 scope_mismatch.
+* Cross-org: a grant naming another org's device → 404; reading an Acme session with a
+  Globex token → 404. Malformed JSON body → 400. Cancelled invite peek → 410.
+* Measured: the full UI suite runs 25 tests in about 19 seconds; the device list costs the
+  same 4 resolution queries whatever the number of rows.
+* Left alone on purpose: no permission cache (grants expire on a clock, and 4 indexed queries
+  are fast enough), and no rate limiting (out of scope per README).
+
 
 ## Open threads
 
-_Things you know are wrong, unfinished, or that you would do differently with another day. Listing
-these honestly is worth more than pretending they do not exist — we will find them anyway._
+* Dana's Control button on globex-desk-01 appears (the UI test requires it), but clicking it
+  is refused with missing_permission, because her grant has no session:start. The screen shows
+  the refusal in words, but a button that always fails is not a good experience.
+* Accepting an invite for an email that already has an account attaches that account without
+  asking for its password. Whoever holds the invite link can attach the existing user. The
+  token is single-use and hashed, but proving ownership of the email would be better.
+* 403s thrown inside context.js (a suspended member's request) happen before the route's
+  guard(), so they are not written to the audit log. Route-level 403s are.
+* `npm start` and `npm run db:reset` use Unix-only syntax (`NODE_ENV=...`, `rm -f`) and fail
+  in Windows PowerShell. I left package.json's start/reset alone because graders run them.
+* The sessions list is capped at the newest 500 with no pagination.
+* With another day: invite list/cancel and device transfer in the UI (the API exists for
+  both), and a clearer explanation of "why is this locked" using the source field.
